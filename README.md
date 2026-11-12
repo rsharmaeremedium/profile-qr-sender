@@ -1,5 +1,7 @@
 # Profile QR Sender (PWA)
 
+**Live app:** https://rsharmaeremedium.github.io/profile-qr-sender/
+
 Turns a list of email IDs into Medxplain profile QR codes named `email+profileId.png`,
 ready to download as a ZIP or share to WhatsApp as a document.
 
