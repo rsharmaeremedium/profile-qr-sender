@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Medxplain Profile ID Finder",
+  "version": "1.1.0",
+  "minimum_chrome_version": "111",
+  "description": "Finds Medxplain user profile IDs in your logged-in admin session and pushes them into the Profile QR Sender app.",
+  "permissions": ["storage", "tabs", "scripting", "clipboardWrite"],
+  "host_permissions": [
+    "https://medxplain.eremedium.in/*",
+    "https://rsharmaeremedium.github.io/profile-qr-sender/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Find Medxplain profile IDs",
+    "default_icon": {
+      "192": "icons/icon-192.png"
+    }
+  },
+  "icons": {
+    "192": "icons/icon-192.png",
+    "512": "icons/icon-512.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://medxplain.eremedium.in/admin/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

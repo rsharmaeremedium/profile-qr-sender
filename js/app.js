@@ -1152,6 +1152,90 @@
   }
 
   /* ======================================================================
+     import from the companion browser extension
+     ====================================================================== */
+  function decodeB64Url(value) {
+    var s = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  function applyImportItems(items) {
+    var added = 0;
+    var updated = 0;
+    var byEmail = Object.create(null);
+
+    state.rows.forEach(function (row) { byEmail[row.email.toLowerCase()] = row; });
+
+    items.forEach(function (item) {
+      if (!item) return;
+      var email = String(item.email || '').trim();
+      var id = String(item.id == null ? '' : item.id).trim();
+      if (!EMAIL_ONE.test(email) || !/^\d+$/.test(id)) return;
+
+      var existing = byEmail[email.toLowerCase()];
+      if (existing) {
+        setRaw(existing, id);
+        updated++;
+        return;
+      }
+
+      var row = {
+        uid: String(++state.seq),
+        email: email,
+        raw: id,
+        profileId: '',
+        url: '',
+        error: '',
+        sent: false
+      };
+      applyRaw(row);
+      state.rows.push(row);
+      byEmail[email.toLowerCase()] = row;
+      added++;
+    });
+
+    if (added || updated) {
+      renderList();
+      saveNow();
+    }
+
+    return { added: added, updated: updated };
+  }
+
+  function importFromHash() {
+    var hash = String(location.hash || '');
+    if (hash.indexOf('#import=') !== 0) return false;
+
+    var payload = hash.slice('#import='.length);
+    var result;
+
+    try {
+      var items = JSON.parse(decodeB64Url(payload));
+      if (!Array.isArray(items)) throw new Error('Not a list');
+      result = applyImportItems(items);
+    } catch (e) {
+      toast('Could not read the IDs from the extension link.', 'error');
+      history.replaceState(null, '', location.pathname + location.search);
+      return false;
+    }
+
+    history.replaceState(null, '', location.pathname + location.search);
+
+    if (result.added || result.updated) {
+      toast('Imported ' + (result.added + result.updated) + ' profile ID' +
+        ((result.added + result.updated) === 1 ? '' : 's') + ' from the extension.', 'ok');
+      return true;
+    }
+
+    toast('The extension link did not contain any new profile IDs.', 'error');
+    return false;
+  }
+
+  /* ======================================================================
      load state
      ====================================================================== */
   function loadState() {
@@ -1408,9 +1492,65 @@
     bindEvents();
     buildBookmarklet();
     renderList();
+    importFromHash();
     updateNet();
     registerServiceWorker();
+    window.addEventListener('hashchange', importFromHash);
   }
+
+  /* ======================================================================
+     companion extension bridge
+     ====================================================================== */
+  window.ProfileQrSender = {
+    getEmails: function () {
+      return state.rows.map(function (row) { return row.email; });
+    },
+
+    setIds: function (items) {
+      var byEmail = Object.create(null);
+      state.rows.forEach(function (row) { byEmail[row.email.toLowerCase()] = row; });
+
+      var updated = 0;
+      var added = 0;
+
+      (items || []).forEach(function (item) {
+        if (!item) return;
+        var email = String(item.email || '').trim();
+        var id = String(item.id == null ? '' : item.id).trim();
+        if (!EMAIL_ONE.test(email) || !/^\d+$/.test(id)) return;
+
+        var row = byEmail[email.toLowerCase()];
+        if (row) {
+          setRaw(row, id);
+          updated++;
+          return;
+        }
+
+        row = {
+          uid: String(++state.seq),
+          email: email,
+          raw: id,
+          profileId: '',
+          url: '',
+          error: '',
+          sent: false
+        };
+        applyRaw(row);
+        state.rows.push(row);
+        byEmail[email.toLowerCase()] = row;
+        added++;
+      });
+
+      if (added) {
+        renderList();
+        updateStats();
+        updateButtons();
+        saveNow();
+      }
+
+      return { updated: updated, added: added, missing: [] };
+    }
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
