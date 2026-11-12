@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Profile QR Sender</title>
+<meta name="description" content="Turn a list of email IDs into Medxplain profile QR codes named email+profileId, ready to download or share on WhatsApp.">
+<meta name="theme-color" content="#4f46e5">
+<meta name="color-scheme" content="light dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <img class="logo" src="icons/icon-192.png" alt="" width="44" height="44">
+      <div class="brand-text">
+        <h1>Profile QR Sender</h1>
+        <p>Email IDs &rarr; Medxplain profile QR &rarr; WhatsApp</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span id="netBadge" class="badge badge-ok" title="Network status">Online</span>
+      <button id="installBtn" class="btn btn-primary" type="button" hidden>Install app</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- ============================================================ 1 -->
+  <section class="card" aria-labelledby="step1Title">
+    <div class="step-head">
+      <div class="step-num" aria-hidden="true">1</div>
+      <div>
+        <h2 id="step1Title">Email IDs</h2>
+        <p>Paste the list below. Every email address is pulled out automatically; duplicates are ignored.</p>
+      </div>
+    </div>
+
+    <div class="email-grid">
+      <textarea id="emailInput" rows="5" spellcheck="false"
+        placeholder="user1@example.com&#10;user2@example.com, user3@example.com&#10;&#10;You can also paste a whole column from Excel / CSV."></textarea>
+      <div class="email-actions">
+        <button id="addEmailsBtn" class="btn btn-primary" type="button">Add emails</button>
+        <label class="btn btn-ghost file-btn">
+          <input id="emailFile" type="file" accept=".txt,.csv,.tsv,text/plain,text/csv,text/tab-separated-values" hidden>
+          Load .txt / .csv
+        </label>
+        <button id="sampleBtn" class="btn btn-ghost" type="button">Try sample</button>
+        <button id="clearEmailsBtn" class="btn btn-ghost btn-danger-ghost" type="button">Clear all</button>
+      </div>
+    </div>
+
+    <p id="emailStats" class="stats" aria-live="polite">0 emails</p>
+  </section>
+
+  <!-- ============================================================ 2 -->
+  <section class="card" aria-labelledby="step2Title">
+    <div class="step-head">
+      <div class="step-num" aria-hidden="true">2</div>
+      <div>
+        <h2 id="step2Title">Profile IDs &amp; QR codes</h2>
+        <p>Click <strong>Search admin</strong>, find the user, then paste the profile ID or the URL you copied. The QR is built automatically.</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <input id="filterInput" type="search" placeholder="Filter by email or ID..." autocomplete="off">
+        <select id="statusFilter" aria-label="Filter by status">
+          <option value="all">All rows</option>
+          <option value="ready">Ready</option>
+          <option value="missing">Missing ID</option>
+          <option value="sent">Sent</option>
+        </select>
+      </div>
+      <div class="toolbar-right">
+        <button id="pasteBtn" class="btn btn-ghost" type="button">Bulk paste</button>
+        <button id="exportCsvBtn" class="btn btn-ghost" type="button">Export CSV</button>
+        <button id="generateAllBtn" class="btn btn-ghost" type="button">Generate all</button>
+        <button id="downloadZipBtn" class="btn btn-primary" type="button" disabled>Download ZIP</button>
+      </div>
+    </div>
+
+    <div id="profileList" class="profile-list" aria-live="polite"></div>
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon" aria-hidden="true">QR</div>
+      <h3>No emails yet</h3>
+      <p>Add a list of email IDs above to get started.</p>
+    </div>
+
+    <details class="settings">
+      <summary>QR settings</summary>
+      <div class="settings-grid">
+        <label class="field">
+          <span>Profile URL base</span>
+          <input id="baseUrl" type="url" value="https://medxplain.eremedium.in/medxplain/" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>PNG size</span>
+          <select id="qrSize">
+            <option value="256">256 &times; 256</option>
+            <option value="500" selected>500 &times; 500</option>
+            <option value="512">512 &times; 512</option>
+            <option value="1024">1024 &times; 1024</option>
+            <option value="2048">2048 &times; 2048</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Error correction</span>
+          <select id="qrEcl">
+            <option value="L">Low (7%)</option>
+            <option value="M">Medium (15%)</option>
+            <option value="Q" selected>Quartile (25%)</option>
+            <option value="H">High (30%)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Quiet zone <output id="qrMarginOut">2</output></span>
+          <input id="qrMargin" type="range" min="0" max="8" step="1" value="2">
+        </label>
+      </div>
+      <p class="hint">Defaults match <a href="https://rsharmaeremedium.github.io/QR-EREMEDIUM/" target="_blank" rel="noopener">QR-EREMEDIUM</a>:
+        PNG 500 &times; 500, Quartile (25%), quiet zone 2, square modules, black on white.
+        File name pattern: <code>{email}+{profileId}.png</code> &middot; the QR encodes the profile URL.</p>
+    </details>
+
+    <details class="settings">
+      <summary>Admin helper (bookmarklet)</summary>
+      <p class="hint">
+        Drag the button below to your bookmarks bar. Open the admin search for a user, click the bookmarklet,
+        and it copies the first matching profile URL to your clipboard. Then use the paste button on the row.
+      </p>
+      <div class="bookmarklet-row">
+        <a id="bookmarkletLink" class="btn btn-ghost" href="#" draggable="true">Copy profile URL</a>
+        <button id="copyBookmarkletBtn" class="btn btn-ghost" type="button">Copy bookmarklet code</button>
+      </div>
+      <p class="hint">Works on the Django admin list page after you log in. If the page layout changes, paste the URL manually instead.</p>
+    </details>
+  </section>
+
+  <!-- ============================================================ 3 -->
+  <section class="card" aria-labelledby="step3Title">
+    <div class="step-head">
+      <div class="step-num" aria-hidden="true">3</div>
+      <div>
+        <h2 id="step3Title">Download &amp; send</h2>
+        <p>Download PNGs named <code>email+profileId.png</code>, or use the share sheet to send them to WhatsApp.</p>
+      </div>
+    </div>
+
+    <div class="send-grid">
+      <div class="send-stat"><strong id="statTotal">0</strong><span>emails</span></div>
+      <div class="send-stat"><strong id="statReady">0</strong><span>ready</span></div>
+      <div class="send-stat"><strong id="statSent">0</strong><span>sent</span></div>
+      <div class="send-stat"><strong id="statMissing">0</strong><span>missing ID</span></div>
+    </div>
+
+    <div class="send-actions">
+      <button id="downloadZipBtn2" class="btn btn-primary" type="button" disabled>Download all PNGs (.zip)</button>
+      <button id="shareNextBtn" class="btn btn-ghost" type="button" disabled>Share next ready</button>
+    </div>
+
+    <div class="notice">
+      <strong>WhatsApp note:</strong> on Android / iPhone tap <strong>Share</strong> and choose WhatsApp, then the contact.
+      On desktop, download the PNG and attach it in WhatsApp using <strong>+ &rarr; Document</strong> so it arrives as a document.
+    </div>
+  </section>
+
+  <!-- ============================================================ help -->
+  <details class="card help-card">
+    <summary>How this works &amp; browser limits</summary>
+    <ol>
+      <li>Add the email IDs in step 1. The app extracts every valid address and removes duplicates.</li>
+      <li>For each email, click <strong>Search admin</strong>. The Medxplain admin opens with the email pre-filled (log in if needed).</li>
+      <li>Open the user, copy the URL from the address bar (it contains <code>/usersprofile/&lt;id&gt;/</code>), and paste it into the row.
+        A bare numeric ID also works. The app converts it to <code>https://medxplain.eremedium.in/medxplain/&lt;id&gt;/</code>.</li>
+      <li>Click <strong>Open</strong> to confirm the profile URL loads, then download the PNG or tap <strong>Share</strong>.</li>
+    </ol>
+    <p class="hint">
+      <strong>Why not fully automatic?</strong> The admin is login-protected and on a different origin. A browser PWA is not allowed to read
+      that page's HTML, so the lookup step stays assisted. Everything after that &mdash; URL building, QR generation, file naming,
+      ZIP export and sharing &mdash; runs locally in this app. No data is uploaded anywhere.
+    </p>
+  </details>
+</main>
+
+<footer class="footer wrap">
+  <p>Runs 100% in your browser &middot; QR engine: <a href="https://github.com/kazuhikoarase/qrcode-generator" target="_blank" rel="noopener">qrcode-generator</a> (MIT) &middot; Installable PWA</p>
+</footer>
+
+<!-- ============================================================== bulk paste -->
+<dialog id="pasteDialog" class="dialog">
+  <form method="dialog" class="dialog-inner" id="pasteForm">
+    <div class="dialog-head">
+      <h2>Bulk paste</h2>
+      <button class="icon-btn" value="cancel" aria-label="Close" type="submit">&times;</button>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Bulk paste mode">
+      <button type="button" class="tab active" data-mode="pairs" role="tab" aria-selected="true">Email + ID / URL</button>
+      <button type="button" class="tab" data-mode="ordered" role="tab" aria-selected="false">IDs / URLs in order</button>
+    </div>
+
+    <div id="pairsPane">
+      <p class="hint">One per line: <code>email, profile id or URL</code>. Comma, tab, semicolon or pipe all work.
+        Unknown emails are added automatically.</p>
+      <textarea id="pairsInput" rows="10" spellcheck="false"
+        placeholder="user1@example.com, 12345&#10;user2@example.com, https://medxplain.eremedium.in/medxplain/67890/&#10;user3@example.com+24680"></textarea>
+    </div>
+
+    <div id="orderedPane" hidden>
+      <p class="hint">One ID or URL per line. Values are applied to the rows currently visible below, in order.</p>
+      <label class="check"><input id="onlyEmpty" type="checkbox" checked> Only fill rows without an ID</label>
+      <textarea id="orderedInput" rows="10" spellcheck="false"
+        placeholder="12345&#10;https://medxplain.eremedium.in/medxplain/67890/&#10;24680"></textarea>
+    </div>
+
+    <p id="pasteError" class="form-error" role="alert" hidden></p>
+
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" value="cancel" type="submit">Cancel</button>
+      <button id="applyPasteBtn" class="btn btn-primary" type="button">Apply</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================================================== share fallback -->
+<dialog id="shareDialog" class="dialog">
+  <div class="dialog-inner">
+    <div class="dialog-head">
+      <h2>Share QR</h2>
+      <button class="icon-btn" id="shareCloseBtn" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="share-preview">
+      <canvas id="shareCanvas" width="220" height="220" aria-label="QR code preview"></canvas>
+    </div>
+    <p id="shareText" class="share-text"></p>
+    <div class="dialog-actions wrap-actions">
+      <button id="shareNativeBtn" class="btn btn-primary" type="button">Share file...</button>
+      <button id="shareDownloadBtn" class="btn btn-ghost" type="button">Download PNG</button>
+      <button id="shareWhatsappBtn" class="btn btn-ghost" type="button">Open WhatsApp</button>
+      <a id="shareWaLink" class="btn btn-ghost" href="#" target="_blank" rel="noopener">Send link instead</a>
+    </div>
+    <p class="hint">If WhatsApp opens without the file, attach the downloaded PNG using <strong>+ &rarr; Document</strong>.</p>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="vendor/qrcode.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
