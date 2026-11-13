@@ -18,9 +18,22 @@ folder. Browser updates do not affect it.
 
 ## Use it
 
+### One click in the app (fastest)
+
 1. Log in to the Medxplain admin in a normal tab.
 2. Open the QR app: <https://rsharmaeremedium.github.io/profile-qr-sender/>
    and add your email list.
+3. Open **Admin helper (bookmarklet)**. When the extension is loaded, a
+   **Fetch IDs now (extension)** button appears there.
+4. Click it. The extension searches the admin in your logged-in tab and fills
+   every row with its profile ID.
+
+If the button does not appear, reload the app tab after loading the extension.
+
+### From the extension popup
+
+1. Log in to the Medxplain admin in a normal tab.
+2. Open the QR app and add your email list.
 3. Click the extension icon.
 4. Click **Use emails from QR app** (optional — fills the email box from the app).
 5. Click **Find IDs**. It searches the admin one email at a time.

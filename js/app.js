@@ -9,6 +9,8 @@
 (function () {
   'use strict';
 
+  var BUILD = '2026-11-13-3';
+
   // Same UTF-8 setup as QR-EREMEDIUM so output matches the reference site.
   if (typeof qrcode === 'function' && qrcode.stringToBytesFuncs && qrcode.stringToBytesFuncs['UTF-8']) {
     qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
@@ -42,6 +44,8 @@
 
     bookmarkletLink: $('bookmarkletLink'),
     copyBookmarkletBtn: $('copyBookmarkletBtn'),
+    extensionFetchBtn: $('extensionFetchBtn'),
+    extensionStatus: $('extensionStatus'),
 
     statTotal: $('statTotal'),
     statReady: $('statReady'),
@@ -100,6 +104,9 @@
   var installPrompt = null;
   var pendingShare = null;
   var pasteMode = 'pairs';
+  var extensionReady = false;
+  var extensionRequestId = '';
+  var extensionTimer = null;
   var zipBusy = false;
 
   /* ======================================================================
@@ -460,7 +467,7 @@
         '<div class="pc-controls">' +
           '<input class="id-input" type="text" spellcheck="false" autocomplete="off" placeholder="Profile ID or URL">' +
           '<button class="btn btn-sm btn-ghost" data-act="paste" type="button">Paste</button>' +
-          '<button class="btn btn-sm btn-ghost" data-act="search" type="button">Search admin</button>' +
+          '<button class="btn btn-sm btn-ghost" data-act="search" type="button">Open admin</button>' +
           '<button class="btn btn-sm btn-ghost" data-act="open" type="button">Open</button>' +
           '<button class="icon-btn" data-act="clear" type="button" title="Clear this row" aria-label="Clear this row">&times;</button>' +
         '</div>' +
@@ -1146,11 +1153,23 @@
     saveSoon();
   }
 
-  /* Runs on the admin page as a bookmarklet. It reads the email list from the
-     clipboard (or a prompt), searches the admin with the user's logged-in
-     session, then opens this app with #import=<ids>. */
+  /* Runs on the admin page as a bookmarklet. It shows a small panel, reads the
+     email list from the clipboard (editable), searches the admin with the
+     logged-in session, then opens this app with #import=<ids>. */
   function bookmarkletFetchIds(appUrl, defaultBase) {
     var EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+    var PANEL_ID = '__pqs_fetch_panel';
+    var lines = [];
+    var reportEl = null;
+    var copyReportBtn = null;
+
+    var existing = document.getElementById(PANEL_ID);
+    if (existing) {
+      existing.style.display = 'block';
+      var oldBox = existing.querySelector('textarea');
+      if (oldBox) oldBox.focus();
+      return;
+    }
 
     function uniqueEmails(text) {
       var found = String(text || '').match(EMAIL_RE) || [];
@@ -1190,7 +1209,8 @@
         out.push({
           id: m[1],
           text: (tr ? tr.textContent : links[i].textContent || '')
-            .replace(/\s+/g, ' ').trim()
+            .replace(/\s+/g, ' ').trim(),
+          changeUrl: url.href
         });
       }
       return out;
@@ -1207,6 +1227,25 @@
       return exact.length === 1 ? exact[0].id : '';
     }
 
+    async function verifyCandidates(rows, email) {
+      var limit = Math.min(rows.length, 4);
+      var emailLc = email.toLowerCase();
+
+      for (var i = 0; i < limit; i++) {
+        if (!rows[i].changeUrl) continue;
+        try {
+          var res = await fetch(rows[i].changeUrl, {
+            credentials: 'same-origin',
+            headers: { Accept: 'text/html' }
+          });
+          if (/\/admin\/login\//.test(res.url)) return '';
+          var html = await res.text();
+          if (html.toLowerCase().indexOf(emailLc) !== -1) return rows[i].id;
+        } catch (e) { /* try the next candidate */ }
+      }
+      return '';
+    }
+
     async function findBase() {
       var path = location.pathname;
       if (/^\/admin\/[^/]+\/[^/]+\/$/.test(path) && path.indexOf('/admin/login/') !== 0) {
@@ -1218,10 +1257,10 @@
           credentials: 'same-origin',
           headers: { Accept: 'text/html' }
         });
-        if (/\/admin\/login\//.test(res.url)) return null;
+        if (/\/admin\/login\//.test(res.url)) return '';
 
         var html = await res.text();
-        if (/id=["']login-form["']/.test(html) || /name=["']username["']/.test(html)) return null;
+        if (isLoginHtml(html)) return '';
 
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var links = doc.querySelectorAll('a[href]');
@@ -1251,6 +1290,10 @@
       }
     }
 
+    function isLoginHtml(html) {
+      return /id=["']login-form["']/i.test(html) || /name=["']username["']/i.test(html);
+    }
+
     function b64url(text) {
       var bytes = new TextEncoder().encode(text);
       var bin = '';
@@ -1258,40 +1301,169 @@
       return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
-    async function run() {
-      var appTab = window.open('about:blank', '_blank');
-      var text = '';
+    function delay(ms) {
+      return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
 
-      try { text = await navigator.clipboard.readText(); } catch (e) { text = ''; }
+    /* ------------------------------------------------------------- the panel */
 
-      var emails = uniqueEmails(text);
+    function el(tag, styles, text) {
+      var node = document.createElement(tag);
+      if (styles) node.setAttribute('style', styles);
+      if (text != null) node.textContent = text;
+      return node;
+    }
+
+    var box = el('div',
+      'position:fixed;z-index:2147483647;top:14px;right:14px;width:370px;' +
+      'max-width:calc(100vw - 28px);max-height:calc(100vh - 28px);overflow:auto;' +
+      'background:#ffffff;color:#0f172a;border:1px solid #cbd5e1;border-radius:12px;' +
+      'box-shadow:0 18px 50px rgba(15,23,42,.28);padding:14px;box-sizing:border-box;' +
+      'font:13px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;text-align:left;');
+    box.id = PANEL_ID;
+
+    var head = el('div', 'display:flex;align-items:center;gap:8px;margin-bottom:2px;');
+    var title = el('strong', 'flex:1;font-size:14px;color:#0f172a;', 'Fetch profile IDs');
+    var closeBtn = el('button',
+      'border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;' +
+      'color:#64748b;padding:0 2px;', '\u00d7');
+    closeBtn.type = 'button';
+    closeBtn.title = 'Close';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.onclick = function () { box.style.display = 'none'; };
+    head.appendChild(title);
+    head.appendChild(closeBtn);
+
+    var hint = el('div', 'margin:0 0 8px;color:#475569;font-size:12px;',
+      'Paste the email IDs below, then click Search admin. The IDs are read from your logged-in admin session.');
+
+    var ta = el('textarea',
+      'width:100%;height:96px;box-sizing:border-box;resize:vertical;padding:7px 8px;' +
+      'border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#0f172a;' +
+      'font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;');
+    ta.placeholder = 'one email per line\ndoctor1@example.com\ndoctor2@example.com';
+    ta.spellcheck = false;
+
+    var actions = el('div', 'display:flex;align-items:center;gap:8px;margin-top:8px;');
+    var searchBtn = el('button',
+      'border:0;border-radius:8px;background:#1d4ed8;color:#ffffff;font:600 13px system-ui,sans-serif;' +
+      'padding:8px 12px;cursor:pointer;', 'Search admin');
+    searchBtn.type = 'button';
+    searchBtn.id = '__pqs_search';
+    copyReportBtn = el('button',
+      'border:1px solid #cbd5e1;border-radius:8px;background:#ffffff;color:#334155;' +
+      'font:600 12px system-ui,sans-serif;padding:7px 10px;cursor:pointer;', 'Copy report');
+    copyReportBtn.type = 'button';
+    copyReportBtn.id = '__pqs_copy_report';
+    copyReportBtn.hidden = true;
+    actions.appendChild(searchBtn);
+    actions.appendChild(copyReportBtn);
+
+    var status = el('div', 'margin-top:9px;font-size:12px;color:#475569;', 'Ready.');
+    status.id = '__pqs_status';
+    var results = el('div', 'margin-top:6px;display:grid;gap:2px;font-size:12px;');
+    reportEl = el('pre',
+      'display:none;margin:8px 0 0;padding:8px;border:1px solid #e2e8f0;border-radius:8px;' +
+      'background:#f8fafc;color:#334155;font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;' +
+      'white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;');
+    reportEl.id = '__pqs_report';
+
+    box.appendChild(head);
+    box.appendChild(hint);
+    box.appendChild(ta);
+    box.appendChild(actions);
+    box.appendChild(status);
+    box.appendChild(results);
+    box.appendChild(reportEl);
+    document.body.appendChild(box);
+
+    function setStatus(text, color) {
+      status.textContent = text;
+      status.style.color = color || '#475569';
+    }
+
+    function addResult(email, id, ok) {
+      var row = el('div', 'display:flex;gap:8px;justify-content:space-between;' +
+        'padding:2px 0;border-top:1px solid #f1f5f9;');
+      var left = el('span', 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#0f172a;', email);
+      var right = el('span', 'white-space:nowrap;font-weight:600;color:' + (ok ? '#15803d' : '#b45309') + ';',
+        ok ? 'ID ' + id : 'no match');
+      row.appendChild(left);
+      row.appendChild(right);
+      results.appendChild(row);
+    }
+
+    function finish() {
+      reportEl.textContent = lines.join('\n');
+      reportEl.style.display = 'block';
+      copyReportBtn.hidden = false;
+      searchBtn.disabled = false;
+      searchBtn.style.opacity = '1';
+      searchBtn.textContent = 'Search admin';
+    }
+
+    copyReportBtn.onclick = function () {
+      var text = reportEl.textContent || '';
+      navigator.clipboard.writeText(text).then(function () {
+        copyReportBtn.textContent = 'Copied';
+        setTimeout(function () { copyReportBtn.textContent = 'Copy report'; }, 1500);
+      }).catch(function () {
+        var range = document.createRange();
+        range.selectNodeContents(reportEl);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      });
+    };
+
+    searchBtn.onclick = async function () {
+      var emails = uniqueEmails(ta.value);
       if (!emails.length) {
-        var typed = prompt('Paste the email IDs (one per line):', text || '');
-        if (!typed) {
-          if (appTab) appTab.close();
-          return;
-        }
-        emails = uniqueEmails(typed);
-      }
-      if (!emails.length) {
-        if (appTab) appTab.close();
-        alert('No email addresses found.');
+        setStatus('Paste at least one email address first.', '#b91c1c');
+        ta.focus();
         return;
       }
 
-      var base = await findBase();
+      ta.value = emails.join('\n');
+      searchBtn.disabled = true;
+      searchBtn.style.opacity = '.65';
+      searchBtn.textContent = 'Searching\u2026';
+      copyReportBtn.hidden = true;
+      reportEl.style.display = 'none';
+      results.textContent = '';
+      lines = [];
+
+      /* Open the app now, inside the click, so the popup is not blocked. */
+      var appTab = null;
+      try { appTab = window.open(appUrl, '_blank'); } catch (e) { appTab = null; }
+      if (appTab) {
+        try { appTab.blur(); window.focus(); } catch (e) { /* ignore */ }
+      }
+
+      setStatus('Checking the admin session\u2026');
+
+      var base = '';
+      try { base = await findBase(); } catch (e) { base = ''; }
+
       if (!base) {
-        if (appTab) appTab.close();
-        alert('The admin session is not logged in. Log in to /admin/ first, then run this bookmarklet again.');
+        lines.push('admin base: not detected (login page or discovery failed)');
+        lines.push('page: ' + location.href);
+        setStatus('Not logged in to the admin. Log in at /admin/ in this tab, then click Search admin again.', '#b91c1c');
+        finish();
+        if (appTab) { try { appTab.close(); } catch (e) { /* ignore */ } }
         return;
       }
+
+      lines.push('admin base: ' + base);
+      lines.push('emails: ' + emails.length);
 
       var items = [];
-      var missing = [];
       var login = false;
 
       for (var i = 0; i < emails.length; i++) {
         var email = emails[i];
+        setStatus('Searching ' + (i + 1) + ' of ' + emails.length + ': ' + email);
+
         var res;
         try {
           res = await fetch(base + '?q=' + encodeURIComponent(email), {
@@ -1299,37 +1471,49 @@
             headers: { Accept: 'text/html' }
           });
         } catch (e) {
-          missing.push(email);
+          addResult(email, '', false);
+          lines.push('- ' + email + ': network error (' + e.message + ')');
           continue;
         }
 
         if (/\/admin\/login\//.test(res.url)) { login = true; break; }
 
         var html = await res.text();
-        if (/id=["']login-form["']/.test(html) || /name=["']username["']/.test(html)) {
-          login = true;
-          break;
-        }
+        if (isLoginHtml(html)) { login = true; break; }
 
         var doc = new DOMParser().parseFromString(html, 'text/html');
+        var rows = collect(doc, base);
         var id = pick(doc, base, email);
-        if (id) items.push({ email: email, id: id }); else missing.push(email);
 
-        if (i < emails.length - 1) {
-          await new Promise(function (resolve) { setTimeout(resolve, 250); });
+        if (!id && rows.length) id = await verifyCandidates(rows, email);
+
+        if (id) {
+          items.push({ email: email, id: id });
+          addResult(email, id, true);
+          lines.push('- ' + email + ': id ' + id);
+        } else {
+          addResult(email, '', false);
+          lines.push('- ' + email + ': ' +
+            (rows.length ? rows.length + ' result rows, no email match' : 'no result rows') +
+            ' (HTTP ' + res.status + ')');
         }
+
+        if (i < emails.length - 1) await delay(250);
       }
 
       if (login) {
-        if (appTab) appTab.close();
-        alert('The admin session expired. Log in to /admin/ and run the bookmarklet again.');
+        lines.push('session: login required');
+        setStatus('The admin session expired. Log in at /admin/ in this tab, then click Search admin again.', '#b91c1c');
+        finish();
+        if (appTab) { try { appTab.close(); } catch (e) { /* ignore */ } }
         return;
       }
 
+      lines.push('found: ' + items.length + ' of ' + emails.length);
+      finish();
+
       if (!items.length) {
-        if (appTab) appTab.close();
-        alert('No profile IDs found.' +
-          (missing.length ? ' ' + missing.length + ' email(s) had no match.' : ''));
+        setStatus('No profile IDs found. See the report below.', '#b45309');
         return;
       }
 
@@ -1338,22 +1522,26 @@
       }).join('\n');
       try { await navigator.clipboard.writeText(pairs); } catch (e) { /* ignore */ }
 
-      var payload = b64url(JSON.stringify(items));
-      var url = appUrl + '#import=' + payload;
-
+      var url = appUrl + '#import=' + b64url(JSON.stringify(items));
       if (appTab) {
-        try { appTab.location.href = url; } catch (e) { window.open(url, '_blank'); }
+        try { appTab.location.href = url; appTab.focus(); } catch (e) {
+          window.open(url, '_blank');
+        }
       } else {
         location.href = url;
       }
 
-      alert('Found ' + items.length + ' of ' + emails.length + ' IDs.\n' +
-        (missing.length ? 'No match for: ' + missing.join(', ') + '\n' : '') +
-        'The QR app is opening with the IDs filled in.\n' +
-        'The email,id list is also on your clipboard.');
-    }
+      setStatus('Found ' + items.length + ' of ' + emails.length +
+        ' IDs. The QR app is opening with them filled in.', '#15803d');
+    };
 
-    run();
+    navigator.clipboard.readText().then(function (text) {
+      if (ta.value) return;
+      var found = uniqueEmails(text);
+      if (found.length) ta.value = found.join('\n');
+    }).catch(function () { /* clipboard needs permission; the user can paste */ });
+
+    ta.focus();
   }
 
   function buildBookmarklet() {
@@ -1449,6 +1637,114 @@
 
     toast('The link did not contain any new profile IDs.', 'error');
     return false;
+  }
+
+  /* ======================================================================
+     extension bridge (one-click fetch from the app)
+     ====================================================================== */
+  function setExtensionReady(ready) {
+    extensionReady = !!ready;
+    if (els.extensionFetchBtn) {
+      els.extensionFetchBtn.hidden = !extensionReady;
+      els.extensionFetchBtn.disabled = false;
+      els.extensionFetchBtn.textContent = 'Fetch IDs now (extension)';
+    }
+    if (els.extensionStatus) {
+      els.extensionStatus.hidden = !extensionReady;
+      els.extensionStatus.textContent = extensionReady
+        ? 'Extension connected. It searches the admin in your logged-in tab.'
+        : '';
+    }
+  }
+
+  function requestExtensionIds() {
+    if (!extensionReady) {
+      toast('The extension is not connected. Reload this page after enabling it.', 'warn');
+      return;
+    }
+
+    var emails = state.rows.map(function (row) { return row.email; });
+    if (!emails.length) {
+      var typed = extractEmails(els.emailInput.value);
+      emails = typed;
+    }
+    if (!emails.length) {
+      toast('Add email IDs in step 1 first.', 'warn');
+      return;
+    }
+
+    extensionRequestId = 'req-' + Date.now().toString(36) + '-' +
+      Math.random().toString(36).slice(2, 7);
+
+    els.extensionFetchBtn.disabled = true;
+    els.extensionFetchBtn.textContent = 'Searching admin\u2026';
+
+    window.postMessage({
+      source: 'profile-qr-app',
+      type: 'fetchIds',
+      requestId: extensionRequestId,
+      emails: emails
+    }, '*');
+
+    clearTimeout(extensionTimer);
+    extensionTimer = setTimeout(function () {
+      if (!els.extensionFetchBtn || !els.extensionFetchBtn.disabled) return;
+      els.extensionFetchBtn.disabled = false;
+      els.extensionFetchBtn.textContent = 'Fetch IDs now (extension)';
+      toast('The extension did not answer. Reload the admin tab and try again.', 'error');
+    }, 120000);
+  }
+
+  function handleExtensionResponse(response) {
+    clearTimeout(extensionTimer);
+    if (els.extensionFetchBtn) {
+      els.extensionFetchBtn.disabled = false;
+      els.extensionFetchBtn.textContent = 'Fetch IDs now (extension)';
+    }
+
+    if (!response || !response.ok) {
+      toast((response && response.error) || 'The extension could not fetch the IDs.', 'error');
+      return;
+    }
+
+    var items = [];
+    var login = false;
+
+    (response.results || []).forEach(function (result) {
+      if (!result) return;
+      if (result.status === 'login') login = true;
+      if (result.status === 'found' && result.id) {
+        items.push({ email: result.email, id: result.id });
+      }
+    });
+
+    if (login) {
+      toast('The admin session is not logged in. Log in in the admin tab, then try again.', 'error');
+    }
+
+    if (!items.length) {
+      toast('No profile IDs found. The admin tab may not be logged in.', 'warn');
+      return;
+    }
+
+    var result = applyImportItems(items);
+    var total = result.added + result.updated;
+    toast('Fetched ' + total + ' profile ID' + (total === 1 ? '' : 's') + '.', 'ok');
+  }
+
+  function onExtensionMessage(event) {
+    if (event.source !== window) return;
+    var data = event.data;
+    if (!data || data.source !== 'profile-qr-extension') return;
+
+    if (data.type === 'ready') {
+      setExtensionReady(true);
+      return;
+    }
+
+    if (data.type === 'results' && data.requestId === extensionRequestId) {
+      handleExtensionResponse(data.response);
+    }
   }
 
   /* ======================================================================
@@ -1587,6 +1883,8 @@
         });
       } else if (act === 'search') {
         window.open(ADMIN_SEARCH + encodeURIComponent(row.email), '_blank', 'noopener');
+        copyText(row.email, 'Email');
+        toast('Admin opened. Click the Fetch IDs from admin bookmarklet there to fill IDs.', 'ok');
       } else if (act === 'open') {
         if (!isReady(row)) {
           toast('Add a profile ID first.', 'error');
@@ -1626,6 +1924,9 @@
     els.copyBookmarkletBtn.addEventListener('click', function () {
       copyText(els.bookmarkletLink.dataset.code || els.bookmarkletLink.href, 'Bookmarklet code');
     });
+    if (els.extensionFetchBtn) {
+      els.extensionFetchBtn.addEventListener('click', requestExtensionIds);
+    }
 
     var tabs = els.pasteDialog.querySelectorAll('.tab');
     Array.prototype.forEach.call(tabs, function (tab) {
@@ -1708,11 +2009,15 @@
     loadSettingsUI();
     bindEvents();
     buildBookmarklet();
+    var buildTag = document.getElementById('buildTag');
+    if (buildTag) buildTag.textContent = 'build ' + BUILD;
     renderList();
     importFromHash();
     updateNet();
     registerServiceWorker();
     window.addEventListener('hashchange', importFromHash);
+    window.addEventListener('message', onExtensionMessage);
+    window.postMessage({ source: 'profile-qr-app', type: 'ping' }, '*');
   }
 
   /* ======================================================================

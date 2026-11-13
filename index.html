@@ -69,6 +69,11 @@
       </div>
     </div>
 
+    <p class="hint">
+      The <strong>Fetch IDs from admin</strong> bookmarklet is what searches the admin and fills these IDs.
+      The <strong>Open admin</strong> button on a row only opens the admin page for that email.
+    </p>
+
     <div class="toolbar">
       <div class="toolbar-left">
         <input id="filterInput" type="search" placeholder="Filter by email or ID..." autocomplete="off">
@@ -130,24 +135,30 @@
         File name pattern: <code>{email}+{profileId}.png</code> &middot; the QR encodes the profile URL.</p>
     </details>
 
-    <details class="settings">
+    <details class="settings" open>
       <summary>Admin helper (bookmarklet)</summary>
       <p class="hint">
-        <strong>Fetch IDs from admin.</strong> Drag the button below to your bookmarks bar.
-        Then open <a href="https://medxplain.eremedium.in/admin/" target="_blank" rel="noopener">the Medxplain admin</a>
-        and log in, click <strong>Copy emails</strong> in step 1 above (or copy your email list), and click the
-        bookmarklet on any admin page.
+        <strong>This is the step that fetches the IDs.</strong> Drag <strong>Fetch IDs from admin</strong> to your
+        bookmarks bar once. Then open <a href="https://medxplain.eremedium.in/admin/" target="_blank" rel="noopener">the Medxplain admin</a>,
+        log in, and click the bookmarklet on any admin page.
       </p>
+      <div class="bookmarklet-row">
+        <button id="extensionFetchBtn" class="btn btn-primary" type="button" hidden>Fetch IDs now (extension)</button>
+        <span id="extensionStatus" class="hint" hidden></span>
+      </div>
       <p class="hint">
-        The bookmarklet searches the admin with your logged-in session, opens this app with the profile IDs
-        filled in, and leaves an <code>email, id</code> list on your clipboard. It asks for the emails if the
-        clipboard is empty.
+        A small panel appears on the admin page. Click <strong>Search admin</strong> there; it reads the emails from
+        your clipboard (or use <strong>Copy emails</strong> in step 1 first), searches with your login, opens this app
+        with the IDs filled in, and leaves an <code>email, id</code> list on your clipboard.
       </p>
       <div class="bookmarklet-row">
         <a id="bookmarkletLink" class="btn btn-ghost" href="#" draggable="true">Fetch IDs from admin</a>
         <button id="copyBookmarkletBtn" class="btn btn-ghost" type="button">Copy bookmarklet code</button>
       </div>
-      <p class="hint">It must run on a logged-in admin page; on the login page it stops and tells you to log in first.</p>
+      <p class="hint">
+        If nothing appears after you click it, reload this app once (an older cached copy may still be running), then
+        drag the bookmarklet again. The panel shows exactly what the admin returned and has a <strong>Copy report</strong> button.
+      </p>
       <p class="hint">
         <strong>Prefer a popup?</strong> Install the companion browser extension from
         <a href="https://github.com/rsharmaeremedium/profile-qr-sender/tree/main/extension" target="_blank" rel="noopener">the <code>extension</code> folder</a>.
@@ -206,7 +217,7 @@
 </main>
 
 <footer class="footer wrap">
-  <p>Runs 100% in your browser &middot; QR engine: <a href="https://github.com/kazuhikoarase/qrcode-generator" target="_blank" rel="noopener">qrcode-generator</a> (MIT) &middot; Installable PWA</p>
+  <p>Runs 100% in your browser &middot; QR engine: <a href="https://github.com/kazuhikoarase/qrcode-generator" target="_blank" rel="noopener">qrcode-generator</a> (MIT) &middot; Installable PWA &middot; <span id="buildTag">build</span></p>
 </footer>
 
 <!-- ============================================================== bulk paste -->

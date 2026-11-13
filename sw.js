@@ -3,7 +3,7 @@
    Bump CACHE_VERSION when you change any cached file. */
 'use strict';
 
-var CACHE_VERSION = 'profile-qr-v3';
+var CACHE_VERSION = 'profile-qr-v4';
 var CORE = [
   './',
   './index.html',

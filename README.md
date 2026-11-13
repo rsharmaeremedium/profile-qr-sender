@@ -57,9 +57,11 @@ popup and can push IDs into an already-open app tab.
 1. Open `chrome://extensions` (or `edge://extensions`) and enable **Developer mode**.
 2. Click **Load unpacked** and select the `extension` folder.
 3. Log in to the Medxplain admin in a normal tab.
-4. Open this app, add the emails, then click the extension icon → **Use emails from QR app** → **Find IDs**.
-5. Click **Push IDs to QR app**. Every row gets its profile ID (new emails are added
-   automatically), and the QR codes are ready.
+4. Open this app and add the emails. The **Admin helper** now shows a
+   **Fetch IDs now (extension)** button; click it and every row is filled.
+   (The popup flow still works: extension icon → **Use emails from QR app** →
+   **Find IDs** → **Push IDs to QR app**.)
+5. The QR codes are ready. New emails are added automatically.
 
 Both methods run the admin searches with your existing browser session. They do not
 store or send credentials anywhere.
