@@ -36,8 +36,14 @@
     <label class="delay">Delay
       <input id="delay" type="number" min="200" max="5000" step="100" value="700"> ms
     </label>
-    <button id="openAdminBtn" class="link" type="button">Open admin tab</button>
+    <span class="small-actions">
+      <button id="diagnoseBtn" class="link" type="button">Diagnose</button>
+      <button id="resetAdminBtn" class="link" type="button">Reset admin URL</button>
+      <button id="openAdminBtn" class="link" type="button">Open admin tab</button>
+    </span>
   </div>
+
+  <pre id="diagnostics" class="diagnostics" hidden></pre>
 
   <section id="resultsWrap" hidden>
     <div class="results-head">

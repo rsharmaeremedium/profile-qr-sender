@@ -36,6 +36,9 @@ function init() {
     useAppBtn: $('useAppBtn'),
     openAdminBtn: $('openAdminBtn'),
     openTabBtn: $('openTabBtn'),
+    diagnoseBtn: $('diagnoseBtn'),
+    resetAdminBtn: $('resetAdminBtn'),
+    diagnostics: $('diagnostics'),
     status: $('status'),
     bar: $('bar'),
     resultsWrap: $('resultsWrap'),
@@ -66,6 +69,9 @@ function bind() {
   els.openAdminBtn.addEventListener('click', function () {
     chrome.tabs.create({ url: ADMIN_URL, active: true });
   });
+
+  els.diagnoseBtn.addEventListener('click', runDiagnostics);
+  els.resetAdminBtn.addEventListener('click', resetAdminBase);
 
   els.openTabBtn.addEventListener('click', function () {
     chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
@@ -243,6 +249,70 @@ function waitForTab(tabId) {
     });
     setTimeout(finish, 20000);
   });
+}
+
+async function runDiagnostics() {
+  els.diagnostics.hidden = false;
+  els.diagnostics.textContent = 'Running diagnostics…';
+  setStatus('Checking the admin session…', 'info');
+
+  var emails = extractEmails(els.emails.value);
+  var email = emails[0] || '';
+
+  var tab;
+  try {
+    tab = await ensureAdminTab();
+  } catch (e) {
+    els.diagnostics.textContent = 'Could not open the admin tab: ' + e.message;
+    setStatus('Could not open the admin tab.', 'error');
+    return;
+  }
+
+  var result;
+  try {
+    result = await sendToTab(tab.id, { cmd: 'diagnose', email: email }, 8);
+  } catch (e) {
+    result = { ok: false, message: String(e.message || e) };
+  }
+
+  var app = null;
+  try {
+    var appTab = await findAppTab(false);
+    if (appTab) {
+      app = await executeInPage(appTab.id, pageIsApp);
+      var appEmails = await executeInPage(appTab.id, pageGetEmails);
+      app.emailCount = appEmails && appEmails.ok ? appEmails.emails.length : null;
+    }
+  } catch (e) {
+    app = { error: String(e.message || e) };
+  }
+
+  els.diagnostics.textContent = JSON.stringify({ adminTab: result, appTab: app }, null, 2);
+
+  if (result && result.indexLogin) {
+    setStatus('Admin says login required. Log in in the admin tab, then click Diagnose again.', 'warn');
+  } else if (result && result.search && result.search.login) {
+    setStatus('Search redirected to login. Log in in the admin tab and try again.', 'warn');
+  } else if (result && result.search && result.search.status >= 400) {
+    setStatus('Admin search returned HTTP ' + result.search.status + '. Check the admin URL.', 'error');
+  } else if (result && result.search && result.search.rowCount === 0) {
+    setStatus('Search returned no rows for ' + (email || 'the test email') + '.', 'warn');
+  } else if (result && result.ok) {
+    setStatus('Diagnostics captured. See the report below.', 'ok');
+  } else {
+    setStatus('Diagnostics failed. See the report below.', 'error');
+  }
+}
+
+async function resetAdminBase() {
+  try {
+    var tab = await ensureAdminTab();
+    await sendToTab(tab.id, { cmd: 'resetSearchBase' }, 5);
+    els.diagnostics.hidden = true;
+    setStatus('Admin search URL reset. The next run will rediscover it.', 'ok');
+  } catch (e) {
+    setStatus('Could not reset the admin URL: ' + e.message, 'error');
+  }
 }
 
 function sendToTab(tabId, msg, retries) {
@@ -469,7 +539,7 @@ async function pushIds() {
         }
 
         setStatus(parts.length
-          ? parts.join(', ') + ' — IDs pushed to the QR app.'
+          ? parts.join(', ') + ' - IDs pushed to the QR app.'
           : 'IDs pushed to the QR app.',
           res.missing && res.missing.length ? 'warn' : 'ok');
         return;
