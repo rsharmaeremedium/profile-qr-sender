@@ -50,6 +50,7 @@
           <input id="emailFile" type="file" accept=".txt,.csv,.tsv,text/plain,text/csv,text/tab-separated-values" hidden>
           Load .txt / .csv
         </label>
+        <button id="copyEmailsBtn" class="btn btn-ghost" type="button">Copy emails</button>
         <button id="sampleBtn" class="btn btn-ghost" type="button">Try sample</button>
         <button id="clearEmailsBtn" class="btn btn-ghost btn-danger-ghost" type="button">Clear all</button>
       </div>
@@ -64,7 +65,7 @@
       <div class="step-num" aria-hidden="true">2</div>
       <div>
         <h2 id="step2Title">Profile IDs &amp; QR codes</h2>
-        <p>Click <strong>Search admin</strong>, find the user, then paste the profile ID or the URL you copied. The QR is built automatically.</p>
+        <p>Paste the profile ID or URL for each email, or use <strong>Fetch IDs from admin</strong> below to fill them automatically.</p>
       </div>
     </div>
 
@@ -132,16 +133,23 @@
     <details class="settings">
       <summary>Admin helper (bookmarklet)</summary>
       <p class="hint">
-        Drag the button below to your bookmarks bar. Open the admin search for a user, click the bookmarklet,
-        and it copies the first matching profile URL to your clipboard. Then use the paste button on the row.
+        <strong>Fetch IDs from admin.</strong> Drag the button below to your bookmarks bar.
+        Then open <a href="https://medxplain.eremedium.in/admin/" target="_blank" rel="noopener">the Medxplain admin</a>
+        and log in, click <strong>Copy emails</strong> in step 1 above (or copy your email list), and click the
+        bookmarklet on any admin page.
+      </p>
+      <p class="hint">
+        The bookmarklet searches the admin with your logged-in session, opens this app with the profile IDs
+        filled in, and leaves an <code>email, id</code> list on your clipboard. It asks for the emails if the
+        clipboard is empty.
       </p>
       <div class="bookmarklet-row">
-        <a id="bookmarkletLink" class="btn btn-ghost" href="#" draggable="true">Copy profile URL</a>
+        <a id="bookmarkletLink" class="btn btn-ghost" href="#" draggable="true">Fetch IDs from admin</a>
         <button id="copyBookmarkletBtn" class="btn btn-ghost" type="button">Copy bookmarklet code</button>
       </div>
-      <p class="hint">Works on the Django admin list page after you log in. If the page layout changes, paste the URL manually instead.</p>
+      <p class="hint">It must run on a logged-in admin page; on the login page it stops and tells you to log in first.</p>
       <p class="hint">
-        <strong>Want one-click lookup?</strong> Install the companion browser extension from
+        <strong>Prefer a popup?</strong> Install the companion browser extension from
         <a href="https://github.com/rsharmaeremedium/profile-qr-sender/tree/main/extension" target="_blank" rel="noopener">the <code>extension</code> folder</a>.
         It searches the admin in your logged-in tab and pushes the IDs straight into this app.
       </p>
@@ -181,15 +189,18 @@
     <summary>How this works &amp; browser limits</summary>
     <ol>
       <li>Add the email IDs in step 1. The app extracts every valid address and removes duplicates.</li>
-      <li>For each email, click <strong>Search admin</strong>. The Medxplain admin opens with the email pre-filled (log in if needed).</li>
-      <li>Open the user, copy the URL from the address bar (it contains <code>/usersprofile/&lt;id&gt;/</code>), and paste it into the row.
-        A bare numeric ID also works. The app converts it to <code>https://medxplain.eremedium.in/medxplain/&lt;id&gt;/</code>.</li>
+      <li>Log in to the Medxplain admin, click <strong>Copy emails</strong> in step 1, then run
+        <strong>Fetch IDs from admin</strong> on any admin page. The app opens with every profile ID filled in.
+        (The companion browser extension does the same from a popup.)</li>
+      <li>If an ID is missing, paste the profile URL or the bare numeric ID into that row.
+        The app converts it to <code>https://medxplain.eremedium.in/medxplain/&lt;id&gt;/</code>.</li>
       <li>Click <strong>Open</strong> to confirm the profile URL loads, then download the PNG or tap <strong>Share</strong>.</li>
     </ol>
     <p class="hint">
-      <strong>Why not fully automatic?</strong> The admin is login-protected and on a different origin. A browser PWA is not allowed to read
-      that page's HTML, so the lookup step stays assisted. Everything after that &mdash; URL building, QR generation, file naming,
-      ZIP export and sharing &mdash; runs locally in this app. No data is uploaded anywhere.
+      <strong>Why the extra click?</strong> The admin is login-protected and on a different origin. A browser PWA is not allowed to read
+      that page's HTML by itself, so the lookup runs in the admin tab (bookmarklet or extension) using your login, then hands the
+      IDs to this app. Everything after that &mdash; URL building, QR generation, file naming, ZIP export and sharing &mdash; runs
+      locally. No data is uploaded anywhere.
     </p>
   </details>
 </main>

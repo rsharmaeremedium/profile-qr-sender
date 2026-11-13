@@ -29,11 +29,30 @@ Bulk helpers:
   currently visible rows in order.
 - **Export CSV** — `email, profile_id, qr_url, filename, sent`.
 
-## Automatic ID lookup (browser extension)
+## Automatic ID lookup
 
-A companion Chrome/Edge extension in [`extension/`](extension/) removes the manual
-paste step. It searches the admin inside your logged-in tab and pushes the found IDs
-into this app.
+The admin is login-protected, so the lookup has to run inside your logged-in admin
+tab. There are two ways to do that; both fill the app with `email → profile ID`
+without hand-copying URLs.
+
+### Bookmarklet (no install)
+
+1. In this app, open **Admin helper (bookmarklet)** and drag **Fetch IDs from admin**
+   to your bookmarks bar.
+2. Add your emails in step 1 and click **Copy emails**.
+3. Open <https://medxplain.eremedium.in/admin/> and log in.
+4. Click the bookmarklet on any admin page. It searches the admin for every email,
+   opens this app with the IDs filled in, and leaves an `email, id` list on your
+   clipboard.
+5. Review the rows, then download or share the QR codes.
+
+If the clipboard is empty it asks you to paste the emails. If the admin session has
+expired it stops and tells you to log in first.
+
+### Browser extension
+
+A companion Chrome/Edge extension in [`extension/`](extension/) does the same from a
+popup and can push IDs into an already-open app tab.
 
 1. Open `chrome://extensions` (or `edge://extensions`) and enable **Developer mode**.
 2. Click **Load unpacked** and select the `extension` folder.
@@ -42,8 +61,8 @@ into this app.
 5. Click **Push IDs to QR app**. Every row gets its profile ID (new emails are added
    automatically), and the QR codes are ready.
 
-The extension runs the admin searches with your existing browser session. It does
-not store or send credentials anywhere.
+Both methods run the admin searches with your existing browser session. They do not
+store or send credentials anywhere.
 
 ## QR settings
 
@@ -97,16 +116,13 @@ and service worker use relative URLs.
 - The **Sent** checkbox is only a local progress marker; it does not confirm
   delivery.
 
-## Why the admin lookup is assisted by default
+## Why the lookup needs the admin tab
 
 The Medxplain admin is login-protected and on a different origin. A PWA cannot read
-the HTML of another origin, so it cannot scrape the profile ID automatically.
-Everything after the lookup — URL building, QR generation, naming, ZIP export,
-sharing — happens locally.
-
-The companion extension works around the cross-origin limit by running the searches
-inside your logged-in admin tab. Without it, a bookmarklet is included under
-**Admin helper** for one-click URL copying on the admin list page after login.
+the HTML of another origin, so it cannot scrape the profile ID by itself. The lookup
+therefore runs in the admin tab — through the bookmarklet or the extension — using
+your existing login. Everything after the lookup — URL building, QR generation,
+naming, ZIP export, sharing — happens locally in this app.
 
 ## Files
 
@@ -126,8 +142,8 @@ qr-pwa/
 
 ## Limits
 
-- A browser PWA cannot read the login-protected admin by itself; use the companion
-  extension for automatic lookups.
+- A browser PWA cannot read the login-protected admin by itself; use the bookmarklet
+  (**Admin helper**) or the companion extension to run the lookup in the admin tab.
 - WhatsApp document delivery cannot be forced by a web app; the share sheet is the
   closest supported flow.
 - Very long URLs can exceed QR capacity at Quartile; the app shows a QR error for

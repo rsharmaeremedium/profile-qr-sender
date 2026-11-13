@@ -21,6 +21,7 @@
     emailFile: $('emailFile'),
     addEmailsBtn: $('addEmailsBtn'),
     sampleBtn: $('sampleBtn'),
+    copyEmailsBtn: $('copyEmailsBtn'),
     clearEmailsBtn: $('clearEmailsBtn'),
     emailStats: $('emailStats'),
 
@@ -684,6 +685,19 @@
     return added;
   }
 
+  function copyEmails() {
+    var emails = state.rows.map(function (row) { return row.email; });
+    if (!emails.length) {
+      var typed = extractEmails(els.emailInput.value);
+      emails = typed;
+    }
+    if (!emails.length) {
+      toast('There are no email IDs to copy yet.', 'warn');
+      return;
+    }
+    copyText(emails.join('\n'), emails.length + ' email' + (emails.length === 1 ? '' : 's'));
+  }
+
   function addSampleRows() {
     var samples = [
       ['dr.rao@example.com', '101'],
@@ -1132,20 +1146,222 @@
     saveSoon();
   }
 
+  /* Runs on the admin page as a bookmarklet. It reads the email list from the
+     clipboard (or a prompt), searches the admin with the user's logged-in
+     session, then opens this app with #import=<ids>. */
+  function bookmarkletFetchIds(appUrl, defaultBase) {
+    var EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+    function uniqueEmails(text) {
+      var found = String(text || '').match(EMAIL_RE) || [];
+      var out = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < found.length; i++) {
+        var email = found[i].replace(/^[.,;:]+|[.,;:]+$/g, '');
+        var key = email.toLowerCase();
+        if (!seen[key]) { seen[key] = true; out.push(email); }
+      }
+      return out;
+    }
+
+    function escapeRe(value) {
+      return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function collect(doc, base) {
+      var model = base.charAt(base.length - 1) === '/' ? base : base + '/';
+      var modelRe = new RegExp(escapeRe(model) + '(\\d+)(?:/|$)', 'i');
+      var fallback = /\/usersprofile\/(\d+)\//i;
+      var links = doc.querySelectorAll('a[href]');
+      var out = [];
+      var seen = Object.create(null);
+
+      for (var i = 0; i < links.length; i++) {
+        var href = links[i].getAttribute('href') || '';
+        var url;
+        try { url = new URL(href, location.origin); } catch (e) { continue; }
+        if (url.origin !== location.origin) continue;
+
+        var m = url.pathname.match(modelRe) || url.pathname.match(fallback);
+        if (!m || seen[m[1]]) continue;
+        seen[m[1]] = true;
+
+        var tr = links[i].closest('tr');
+        out.push({
+          id: m[1],
+          text: (tr ? tr.textContent : links[i].textContent || '')
+            .replace(/\s+/g, ' ').trim()
+        });
+      }
+      return out;
+    }
+
+    function pick(doc, base, email) {
+      var rows = collect(doc, base);
+      if (rows.length === 1) return rows[0].id;
+
+      var emailLc = email.toLowerCase();
+      var exact = rows.filter(function (r) {
+        return r.text.toLowerCase().indexOf(emailLc) !== -1;
+      });
+      return exact.length === 1 ? exact[0].id : '';
+    }
+
+    async function findBase() {
+      var path = location.pathname;
+      if (/^\/admin\/[^/]+\/[^/]+\/$/.test(path) && path.indexOf('/admin/login/') !== 0) {
+        return path;
+      }
+
+      try {
+        var res = await fetch('/admin/', {
+          credentials: 'same-origin',
+          headers: { Accept: 'text/html' }
+        });
+        if (/\/admin\/login\//.test(res.url)) return null;
+
+        var html = await res.text();
+        if (/id=["']login-form["']/.test(html) || /name=["']username["']/.test(html)) return null;
+
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var links = doc.querySelectorAll('a[href]');
+        var best = null;
+
+        for (var i = 0; i < links.length; i++) {
+          var href = links[i].getAttribute('href') || '';
+          var url;
+          try { url = new URL(href, location.origin); } catch (e) { continue; }
+          if (url.origin !== location.origin) continue;
+          if (!/^\/admin\/[^/]+\/[^/]+\/$/.test(url.pathname)) continue;
+
+          var text = (links[i].textContent || '').toLowerCase();
+          var p = url.pathname.toLowerCase();
+          var score = 0;
+          if (p.indexOf('usersprofile') !== -1) score += 20;
+          if (p.indexOf('userprofile') !== -1) score += 15;
+          if (text.indexOf('profile') !== -1) score += 6;
+          if (text.indexOf('user') !== -1) score += 3;
+          if (score > 0 && (!best || score > best.score)) {
+            best = { href: url.pathname, score: score };
+          }
+        }
+        return best ? best.href : defaultBase;
+      } catch (e) {
+        return defaultBase;
+      }
+    }
+
+    function b64url(text) {
+      var bytes = new TextEncoder().encode(text);
+      var bin = '';
+      for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    async function run() {
+      var appTab = window.open('about:blank', '_blank');
+      var text = '';
+
+      try { text = await navigator.clipboard.readText(); } catch (e) { text = ''; }
+
+      var emails = uniqueEmails(text);
+      if (!emails.length) {
+        var typed = prompt('Paste the email IDs (one per line):', text || '');
+        if (!typed) {
+          if (appTab) appTab.close();
+          return;
+        }
+        emails = uniqueEmails(typed);
+      }
+      if (!emails.length) {
+        if (appTab) appTab.close();
+        alert('No email addresses found.');
+        return;
+      }
+
+      var base = await findBase();
+      if (!base) {
+        if (appTab) appTab.close();
+        alert('The admin session is not logged in. Log in to /admin/ first, then run this bookmarklet again.');
+        return;
+      }
+
+      var items = [];
+      var missing = [];
+      var login = false;
+
+      for (var i = 0; i < emails.length; i++) {
+        var email = emails[i];
+        var res;
+        try {
+          res = await fetch(base + '?q=' + encodeURIComponent(email), {
+            credentials: 'same-origin',
+            headers: { Accept: 'text/html' }
+          });
+        } catch (e) {
+          missing.push(email);
+          continue;
+        }
+
+        if (/\/admin\/login\//.test(res.url)) { login = true; break; }
+
+        var html = await res.text();
+        if (/id=["']login-form["']/.test(html) || /name=["']username["']/.test(html)) {
+          login = true;
+          break;
+        }
+
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var id = pick(doc, base, email);
+        if (id) items.push({ email: email, id: id }); else missing.push(email);
+
+        if (i < emails.length - 1) {
+          await new Promise(function (resolve) { setTimeout(resolve, 250); });
+        }
+      }
+
+      if (login) {
+        if (appTab) appTab.close();
+        alert('The admin session expired. Log in to /admin/ and run the bookmarklet again.');
+        return;
+      }
+
+      if (!items.length) {
+        if (appTab) appTab.close();
+        alert('No profile IDs found.' +
+          (missing.length ? ' ' + missing.length + ' email(s) had no match.' : ''));
+        return;
+      }
+
+      var pairs = items.map(function (item) {
+        return item.email + ', ' + item.id;
+      }).join('\n');
+      try { await navigator.clipboard.writeText(pairs); } catch (e) { /* ignore */ }
+
+      var payload = b64url(JSON.stringify(items));
+      var url = appUrl + '#import=' + payload;
+
+      if (appTab) {
+        try { appTab.location.href = url; } catch (e) { window.open(url, '_blank'); }
+      } else {
+        location.href = url;
+      }
+
+      alert('Found ' + items.length + ' of ' + emails.length + ' IDs.\n' +
+        (missing.length ? 'No match for: ' + missing.join(', ') + '\n' : '') +
+        'The QR app is opening with the IDs filled in.\n' +
+        'The email,id list is also on your clipboard.');
+    }
+
+    run();
+  }
+
   function buildBookmarklet() {
-    var base = state.settings.baseUrl;
-    var code = 'javascript:(()=>{' +
-      'const a=document.querySelector(\'#result_list tbody tr a[href*="/usersprofile/"]\')||' +
-        'document.querySelector(\'a[href*="/usersprofile/"][href*="/change/"]\');' +
-      'if(!a){alert("No profile link found on this page.");return}' +
-      'const m=a.href.match(/\\/usersprofile\\/(\\d+)/);' +
-      'if(!m){alert("Could not read the profile ID.");return}' +
-      'const url=' + JSON.stringify(base) + '+m[1]+"/";' +
-      'navigator.clipboard.writeText(url).then(' +
-        '()=>alert("Copied: "+url),' +
-        '()=>prompt("Copy this URL",url)' +
-      ');' +
-    '})();';
+    var appUrl = location.origin + location.pathname;
+    var code = 'javascript:(' + bookmarkletFetchIds.toString() + ')(' +
+      JSON.stringify(appUrl) + ',' +
+      JSON.stringify('/admin/userprofile/usersprofile/') +
+    ');';
 
     els.bookmarkletLink.href = code;
     els.bookmarkletLink.dataset.code = code;
@@ -1218,7 +1434,7 @@
       if (!Array.isArray(items)) throw new Error('Not a list');
       result = applyImportItems(items);
     } catch (e) {
-      toast('Could not read the IDs from the extension link.', 'error');
+      toast('Could not read the profile IDs from the link.', 'error');
       history.replaceState(null, '', location.pathname + location.search);
       return false;
     }
@@ -1227,11 +1443,11 @@
 
     if (result.added || result.updated) {
       toast('Imported ' + (result.added + result.updated) + ' profile ID' +
-        ((result.added + result.updated) === 1 ? '' : 's') + ' from the extension.', 'ok');
+        ((result.added + result.updated) === 1 ? '' : 's') + '.', 'ok');
       return true;
     }
 
-    toast('The extension link did not contain any new profile IDs.', 'error');
+    toast('The link did not contain any new profile IDs.', 'error');
     return false;
   }
 
@@ -1294,6 +1510,7 @@
     });
 
     els.sampleBtn.addEventListener('click', addSampleRows);
+    els.copyEmailsBtn.addEventListener('click', copyEmails);
     els.clearEmailsBtn.addEventListener('click', clearAll);
 
     els.filterInput.addEventListener('input', function () {
